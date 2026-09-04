@@ -31,7 +31,7 @@ const randInt = (min, max) => Math.floor(rand(min, max + 1));
 
 // ── Bullet ────────────────────────────────────────────────────────────────────
 class Bullet {
-  constructor(x, y, angle) {
+  constructor(x, y, angle, delay = 0) {
     this.x = x;
     this.y = y;
     const SPEED = 520;
@@ -40,9 +40,14 @@ class Bullet {
     this.ttl  = 1.1;
     this.radius = 2;
     this.dead = false;
+    this.delay = delay;  // retardo de ráfaga: la bala espera quieta antes de partir
   }
 
   update(dt) {
+    if (this.delay > 0) {
+      this.delay -= dt;
+      return;
+    }
     this.x = wrap(this.x + this.vx * dt, W);
     this.y = wrap(this.y + this.vy * dt, H);
     this.ttl -= dt;
@@ -178,6 +183,7 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.boostTime     = 0;
+    this.tripleTime    = 0;
     this.dead          = false;
   }
 
@@ -186,6 +192,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTime     > 0) this.boostTime     -= dt;
+    if (this.tripleTime    > 0) this.tripleTime    -= dt;
 
     const ROT   = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -213,6 +220,16 @@ class Ship {
     const NOSE = 21;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+
+    // Triple shot: ráfaga de 3 disparos en línea recta
+    if (this.tripleTime > 0) {
+      const GAP = 0.06;  // s entre balas de la ráfaga
+      return [
+        new Bullet(ox, oy, this.angle, 0),
+        new Bullet(ox, oy, this.angle, GAP),
+        new Bullet(ox, oy, this.angle, GAP * 2),
+      ];
+    }
     return [new Bullet(ox, oy, this.angle)];
   }
 
@@ -309,15 +326,40 @@ class PowerUp {
   draw() {
     if (this.ttl < this.blinkFrom && Math.floor(this.ttl * 8) % 2 === 0) return;
 
+    const isTriple = this.kind === 'triple';
+    const main = isTriple ? '#ff4de0' : '#00ffff';
+    const ring = isTriple ? 'rgba(255, 77, 224, 0.5)' : 'rgba(0, 255, 255, 0.5)';
+
     const pulse = 1 + 0.15 * Math.sin(performance.now() / 200);
     ctx.save();
     ctx.translate(this.x, this.y);
 
-    ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+    ctx.strokeStyle = ring;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     ctx.arc(0, 0, this.radius * pulse, 0, Math.PI * 2);
     ctx.stroke();
+
+    if (isTriple) {
+      // Triple shot: tres balas en línea (ráfaga)
+      ctx.lineCap = 'round';
+      for (let k = 0; k < 3; k++) {
+        const bx = 2 - k * 5;
+        const by = -2 + k * 5;
+        ctx.strokeStyle = main;
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(bx - 2, by + 2);
+        ctx.lineTo(bx + 2, by - 2);
+        ctx.stroke();
+        ctx.fillStyle = main;
+        ctx.beginPath();
+        ctx.arc(bx, by, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      return;
+    }
 
     ctx.strokeStyle = '#00ffff';
     ctx.lineWidth   = 2.5;
@@ -356,7 +398,8 @@ function spawnAsteroids(count) {
 }
 
 function spawnPowerUp(x, y) {
-  powerUps.push(new PowerUp(x, y));
+  const kind = Math.random() < 0.5 ? 'speed' : 'triple';
+  powerUps.push(new PowerUp(x, y, kind));
 }
 
 function spawnShootingStar() {
@@ -405,7 +448,8 @@ function explode(x, y, count = 8) {
 function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
-  ship.boostTime = 0;
+  ship.boostTime  = 0;
+  ship.tripleTime = 0;
   lives--;
   if (lives <= 0) {
     state = 'gameover';
@@ -475,11 +519,12 @@ function update(dt) {
   asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
   bullets   = bullets.filter(b => !b.dead);
 
-  // Nave vs power-up (velocidad)
+  // Nave vs power-up
   for (const p of powerUps) {
     if (!p.dead && dist(ship, p) < ship.radius + p.radius) {
       p.dead = true;
-      ship.boostTime = 5;
+      if (p.kind === 'triple') ship.tripleTime = 5;
+      else                     ship.boostTime  = 5;
       explode(ship.x, ship.y, 6);
     }
   }
@@ -530,12 +575,15 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
-  if (ship.boostTime > 0) {
-    ctx.fillStyle = '#00ffff';
+  // Mensajes de power-ups activos
+  const powerMsgs = [];
+  if (ship.boostTime > 0)  powerMsgs.push(['VELOCIDAD', ship.boostTime.toFixed(1), '#00ffff']);
+  if (ship.tripleTime > 0) powerMsgs.push(['TRIPLE',    ship.tripleTime.toFixed(1), '#ff4de0']);
+  powerMsgs.forEach((m, i) => {
+    ctx.fillStyle = m[2];
     ctx.font = 'bold 16px monospace';
-    ctx.fillText(`VELOCIDAD ${ship.boostTime.toFixed(1)}s`, W / 2, 48);
-  }
-
+    ctx.fillText(`${m[0]} ${m[1]}s`, W / 2, 48 + i * 20);
+  });
 }
 
 function drawOverlay(title, sub) {
