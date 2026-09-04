@@ -163,6 +163,48 @@ class Asteroid {
   }
 }
 
+// ── Skins (apariencia de la nave) ─────────────────────────────────────────────
+// Cada skin define el color de trazo, el color de llama y su silueta.
+// El perfil se expresa en coordenadas locales con la nariz apuntando a +X.
+const SKINS = [
+  {
+    nombre: 'CLÁSICA',
+    color: '#ffffff',
+    llama: 'rgba(255, 130, 0, 0.85)',
+    escape: -8,
+    perfil: [[20, 0], [-12, -9], [-7, 0], [-12, 9]],
+  },
+  {
+    nombre: 'CAZA',
+    color: '#00ffcc',
+    llama: 'rgba(255, 255, 255, 0.8)',
+    escape: -9,
+    perfil: [[22, 0], [-3, -6], [-17, -12], [-9, 0], [-17, 12], [-3, 6]],
+  },
+  {
+    nombre: 'CUCHILLA',
+    color: '#ff4d9e',
+    llama: 'rgba(255, 170, 205, 0.85)',
+    escape: -8,
+    perfil: [[26, 0], [6, -3], [-12, -5], [-8, 0], [-12, 5], [6, 3]],
+  },
+  {
+    nombre: 'TITÁN',
+    color: '#ffc53d',
+    llama: 'rgba(255, 120, 40, 0.85)',
+    escape: -15,
+    perfil: [[16, 0], [3, -11], [-15, -4], [-15, 4], [3, 11]],
+  },
+];
+
+function trazarPerfil(perfil, escala) {
+  ctx.beginPath();
+  ctx.moveTo(perfil[0][0] * escala, perfil[0][1] * escala);
+  for (let i = 1; i < perfil.length; i++)
+    ctx.lineTo(perfil[i][0] * escala, perfil[i][1] * escala);
+  ctx.closePath();
+}
+
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
   constructor() { this.reset(); }
@@ -221,29 +263,24 @@ class Ship {
     // Parpadeo durante invencibilidad de reaparición
     if (this.invincible > 0 && Math.floor(this.invincible * 8) % 2 === 0) return;
 
+    const skin = SKINS[skinIndex];
+
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = skin.color;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
-
-    // Silueta clásica: triángulo con muesca trasera
-    ctx.beginPath();
-    ctx.moveTo( 20,  0);   // nariz
-    ctx.lineTo(-12, -9);   // ala izquierda
-    ctx.lineTo( -7,  0);   // muesca trasera
-    ctx.lineTo(-12,  9);   // ala derecha
-    ctx.closePath();
+    trazarPerfil(skin.perfil, 1);
     ctx.stroke();
 
     // Llama del propulsor
     if (this.thrusting && Math.random() > 0.35) {
       ctx.beginPath();
-      ctx.moveTo(-8, -4);
-      ctx.lineTo(-8 - rand(6, 14), 0);
-      ctx.lineTo(-8,  4);
-      ctx.strokeStyle = 'rgba(255, 130, 0, 0.85)';
+      ctx.moveTo(skin.escape, -4);
+      ctx.lineTo(skin.escape - rand(6, 14), 0);
+      ctx.lineTo(skin.escape,  4);
+      ctx.strokeStyle = skin.llama;
       ctx.stroke();
     }
 
@@ -342,6 +379,7 @@ let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let starTimer;  // cuenta regresiva para la próxima estrella fugaz
+let skinIndex = 0;  // skin activa (índice en SKINS)
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -417,6 +455,8 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  if (pressed('KeyQ')) skinIndex = (skinIndex + 1) % SKINS.length;
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
@@ -501,18 +541,14 @@ function update(dt) {
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function drawLifeIcon(x, y) {
+  const skin = SKINS[skinIndex];
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = skin.color;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
-  ctx.beginPath();
-  ctx.moveTo( 9,  0);
-  ctx.lineTo(-6, -5);
-  ctx.lineTo(-3,  0);
-  ctx.lineTo(-6,  5);
-  ctx.closePath();
+  trazarPerfil(skin.perfil, 0.5);
   ctx.stroke();
   ctx.restore();
 }
@@ -523,6 +559,9 @@ function drawHUD() {
 
   ctx.textAlign = 'left';
   ctx.fillText(`SCORE  ${score}`, 14, 26);
+  ctx.fillStyle = SKINS[skinIndex].color;
+  ctx.fillText(`NAVE ${SKINS[skinIndex].nombre}   [Q]`, 14, 46);
+  ctx.fillStyle = '#fff';
 
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
