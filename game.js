@@ -171,6 +171,8 @@ class Asteroid {
 // ── Skins (apariencia de la nave) ─────────────────────────────────────────────
 // Cada skin define el color de trazo, el color de llama y su silueta.
 // El perfil se expresa en coordenadas locales con la nariz apuntando a +X.
+// `escala` multiplica el tamaño visual y la hitbox (1 = normal).
+// `puntos`  multiplica los puntos ganados por asteroide (1 = normal).
 const SKINS = [
   {
     nombre: 'CLÁSICA',
@@ -199,6 +201,15 @@ const SKINS = [
     llama: 'rgba(255, 120, 40, 0.85)',
     escape: -15,
     perfil: [[16, 0], [3, -11], [-15, -4], [-15, 4], [3, 11]],
+  },
+  {
+    nombre: 'MORADA',
+    color: '#a85bff',
+    llama: 'rgba(200, 140, 255, 0.85)',
+    escape: -10,
+    escala: 2,
+    puntos: 2,
+    perfil: [[24, 0], [4, -8], [-8, -14], [-16, -5], [-12, 0], [-16, 5], [-8, 14], [4, 8]],
   },
 ];
 
@@ -232,6 +243,8 @@ class Ship {
 
   update(dt) {
     if (this.dead) return;
+    // La hitbox escala con la nave activa (p. ej. MORADA es el doble)
+    this.radius = 12 * (SKINS[skinIndex].escala || 1);
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.boostTime     > 0) this.boostTime     -= dt;
@@ -261,7 +274,9 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const skin  = SKINS[skinIndex];
+    const nariz = Math.max(...skin.perfil.map(v => v[0]));  // punta de la nave
+    const NOSE  = (nariz + 2) * (skin.escala || 1);
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
 
@@ -287,6 +302,7 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
+    ctx.scale(skin.escala || 1, skin.escala || 1);
     ctx.strokeStyle = skin.color;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
@@ -568,7 +584,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += a.points;
+        score += a.points * (SKINS[skinIndex].puntos || 1);
         explode(a.x, a.y, a.size * 5);
         if (Math.random() < 0.14 && powerUps.length < 3) spawnPowerUp(a.x, a.y);
         newAsteroids.push(...a.split());
@@ -597,7 +613,7 @@ function update(dt) {
     for (const a of asteroids) {
       if (!a.dead && dist(ship, a) < ship.radius + a.radius * 0.82) {
         a.dead = true;
-        score += a.points;
+        score += a.points * (SKINS[skinIndex].puntos || 1);
         explode(a.x, a.y, a.size * 5);
         if (Math.random() < 0.14 && powerUps.length < 3) spawnPowerUp(a.x, a.y);
         newAsteroids.push(...a.split());
@@ -620,13 +636,14 @@ function update(dt) {
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function drawLifeIcon(x, y) {
   const skin = SKINS[skinIndex];
+  const icono = 0.5 / (skin.escala || 1);  // tamaño uniforme en el HUD
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
   ctx.strokeStyle = skin.color;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
-  trazarPerfil(skin.perfil, 0.5);
+  trazarPerfil(skin.perfil, icono);
   ctx.stroke();
   ctx.restore();
 }
@@ -668,8 +685,13 @@ function drawHUD() {
 
   ctx.textAlign = 'left';
   ctx.fillText(`SCORE  ${score}`, 14, 26);
-  ctx.fillStyle = SKINS[skinIndex].color;
-  ctx.fillText(`NAVE ${SKINS[skinIndex].nombre}   [Q]`, 14, 46);
+  const nave = SKINS[skinIndex];
+  ctx.fillStyle = nave.color;
+  ctx.fillText(`NAVE ${nave.nombre}   [Q]`, 14, 46);
+  if ((nave.escala || 1) > 1) {
+    ctx.fillStyle = nave.color;
+    ctx.fillText(`PUNTOS x${nave.puntos || 1}`, 14, 66);
+  }
   ctx.fillStyle = '#fff';
 
   ctx.textAlign = 'center';

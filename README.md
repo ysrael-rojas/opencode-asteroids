@@ -44,4 +44,4 @@ Luego visita `http://localhost:3000`.
 - 3 vidas con invencibilidad temporal al reaparecer (parpadeo)
 - Asteroides se parten en fragmentos más pequeños al ser destruidos
 - Partículas de explosión al destruir asteroides
-- 4 skins de nave (CLÁSICA, CAZA, CUCHILLA y TITÁN) con forma y color propios, cambiables con `Q`
+- 5 skins de nave (CLÁSICA, CAZA, CUCHILLA, TITÁN y MORADA) con forma y color propios, cambiables con `Q`. MORADA es el doble de grande y otorga el doble de puntos.
