@@ -1,0 +1,155 @@
+name: Formatear y etiquetar issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Etiquetar issue por keywords
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const rules = [
+              {
+                label: 'documentation',
+                keywords: ['documentacion', 'documentación', 'readme', 'documentar', 'documentation', 'docs', 'explicar'],
+              },
+              {
+                label: 'question',
+                keywords: ['pregunta', 'duda', 'como hago', 'como funciona', 'como se', 'que es', 'cómo hago', 'cómo funciona', 'cómo se', 'qué es', 'question', 'ayuda con'],
+              },
+              {
+                label: 'bug',
+                keywords: ['bug', 'error', 'no funciona', 'no carga', 'falla', 'crash', 'se rompe', 'se cae', 'esta roto', 'está roto', 'pantalla negra', 'glitch', 'no aparece', 'se traba', 'se congela', 'no responde'],
+              },
+            ];
+            const defaultLabel = 'enhancement';
+
+            const issueNumber = context.payload.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const text = `${context.payload.issue.title} ${context.payload.issue.body || ''}`.toLowerCase();
+
+            let label = defaultLabel;
+            for (const rule of rules) {
+              if (rule.keywords.some((keyword) => text.includes(keyword))) {
+                label = rule.label;
+                break;
+              }
+            }
+
+            const existingLabels = (
+              await github.rest.issues.listLabelsForRepo({ owner, repo, per_page: 100 })
+            ).data.map((item) => item.name);
+
+            if (!existingLabels.includes(label)) {
+              console.log(`La label "${label}" no existe en el repo; no se etiqueta.`);
+              return;
+            }
+
+            await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: [label] });
+            console.log(`Etiqueta aplicada: ${label}`);
+
+      - name: Enriquecer issue con IA
+        continue-on-error: true
+        uses: anomalyco/opencode/github@latest
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        with:
+          model: deepseek/deepseek-v4-flash
+          prompt: |
+            Eres el encargado de enriquecer un issue recién creado en este repositorio: un clon de Asteroids en HTML5 canvas, sin dependencias ni bundler, con toda la lógica en game.js y la interfaz en index.html.
+
+            No edites ningún archivo, no crees ramas ni PRs y no ejecutes git. Tampoco escribas los comandos disparadores del bot con barra (como /o seguido de la letra c) porque pueden lanzar otro workflow; si debes referirte a ellos usa "el comando del bot".
+
+            Lee el título y el cuerpo del issue y responde EXCLUSIVAMENTE con el bloque de markdown siguiente, sin nada de texto fuera de los marcadores. Respeta exactamente los marcadores de inicio y fin.
+
+            <!-- enriquecimiento-inicio -->
+            ## Información generada automáticamente para el revisor
+
+            **Resumen:** <breve resumen de lo que pide el autor, en español>
+
+            **Tipo probable:** <feature | bug | pregunta | documentación>
+
+            **Zonas del código implicadas:** <qué parte del juego toca: nave, asteroides, colisiones, power-ups, HUD, lógica en game.js, etc.>
+
+            **Archivos que probablemente cambien:** <p. ej. game.js, index.html, README.md>
+
+            **Notas de verificación:**
+            - Abrir index.html en el navegador; el juego se prueba con teclado.
+            - No hay tests ni lint: al menos validar con node --check game.js y revisión visual.
+            - El tamaño del canvas en index.html debe mantenerse sincronizado con W/H en game.js.
+
+            **Checklist para el revisor:**
+            - [ ] Comportamiento solicitado implementado.
+            - [ ] Sin regresiones en el resto del juego.
+            - [ ] Comentarios/UI en español cuando aplica.
+
+            **Preguntas de clarificación:**
+            - <escribe "Ninguna" si el issue es claro>
+            <!-- enriquecimiento-fin -->
+
+            Reglas:
+            1. Completa los campos según el contenido real del issue; no inventes requisitos.
+            2. Si falta información relevante, anótala en Preguntas de clarificación.
+            3. Máximo 30 líneas, conciso, en español.
+
+      - name: Fusionar enriquecimiento en el cuerpo del issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const markerStart = '<!-- enriquecimiento-inicio -->';
+            const markerEnd = '<!-- enriquecimiento-fin -->';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issueNumber = context.payload.issue.number;
+
+            const issue = (
+              await github.rest.issues.get({ owner, repo, issue_number: issueNumber })
+            ).data;
+
+            if (issue.body && issue.body.includes(markerStart)) {
+              console.log('El issue ya contiene el enriquecimiento; se omite.');
+              return;
+            }
+
+            const comments = (
+              await github.rest.issues.listComments({ owner, repo, issue_number: issueNumber, per_page: 100 })
+            ).data;
+
+            const enrichment = comments.find((comment) => comment.body.includes(markerStart));
+            if (!enrichment) {
+              console.log('No se encontró el comentario de enriquecimiento; el issue se deja tal cual.');
+              return;
+            }
+
+            const raw = enrichment.body;
+            const startIdx = raw.indexOf(markerStart);
+            const endIdx = raw.indexOf(markerEnd);
+            const block = (startIdx === -1)
+              ? raw.trim()
+              : (endIdx > startIdx
+                  ? raw.slice(startIdx, endIdx + markerEnd.length)
+                  : raw.slice(startIdx)).trim();
+
+            const original = (issue.body || '').trim();
+            const body = original ? `${original}\n\n---\n\n${block}\n` : `${block}\n`;
+
+            await github.rest.issues.update({ owner, repo, issue_number: issueNumber, body });
+            console.log('Body actualizado con el enriquecimiento.');
+
+            await github.rest.issues.deleteComment({ owner, repo, comment_id: enrichment.id });
+            console.log('Comentario helper eliminado.');
